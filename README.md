@@ -1,4 +1,4 @@
-# MÔN HỌC: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU - ThS.ĐỖ DUY CỐP
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/93ff49ec-14df-4b95-9d86-a91905c8b480" /># MÔN HỌC: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU - ThS.ĐỖ DUY CỐP
 ## Họ và tên: Trần Nhất Nam
 ## MSSV: K235480106001
 ## Lớp: K59KMT
@@ -345,40 +345,215 @@ Giải thích kết quả chương trình:
   
 --> Tổng tiền = 11.150.000 x (1 + 0.005)^9 = 11.150.000 x 1.0459... ~ 11.661.903đ
 
+---
 
+### EVENT 3: XỬ LÝ TRẢ NỢ VÀ HOÀN TRẢ TÀI SẢN
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/61043d51-9e21-46e1-a410-b2fe20ae47fa" />
+- Store Procedure xử lý khi khách mang tiền đến: 
 
+**Đoạn 1: Khai báo tham số và Lớp khiên bảo vệ**
+```
+-- Khai báo các biến đầu vào
+    -- ĐOẠN 1: KIỂM TRA CHẶN GIAO DỊCH
+    IF EXISTS (SELECT 1 FROM TaiSan WHERE MaHopDong = @MaHopDong AND TrangThaiTaiSan = N'Đã bán thanh lý')
+    BEGIN
+        PRINT N' TỪ CHỐI GIAO DỊCH: Tài sản của hợp đồng này đã bị mang đi thanh lý (quá hạn). Không thể thu tiền hay trả đồ!';
+        RETURN; -- Lập tức thoát khỏi Procedure, hủy toàn bộ thao tác bên dưới
+    END
+```
 
+Chương trình dùng lệnh IF EXISTS để kiểm tra trạng thái tài sản. Nếu có bất kỳ món đồ nào đã bị tiệm đem đi bán (Đã bán thanh lý), hệ thống sẽ khóa mõm giao dịch này lại bằng lệnh RETURN, nhân viên sẽ không thể thu thêm tiền của khách hay xuất đồ ra nữa.
 
+**Đoạn 2: Tính toán công nợ và Lưu sổ sách**
+```
+    -- ĐOẠN 2: TÍNH TỔNG NỢ & LƯU VẾT VÀO NHẬT KÝ
+    -- Gọi lại Hàm số 1 ở Event 2 để xem tính đến hôm nay khách nợ tổng bao nhiêu (Gốc + Lãi)
+    DECLARE @TongNoHienTai DECIMAL(18,2) = dbo.FnTinhTienHopDong(@MaHopDong, GETDATE());
+    
+    -- Lệnh BẮT BUỘC: Ghi nhận lịch sử dòng tiền vào bảng NhatKyGiaoDich
+    INSERT INTO NhatKyGiaoDich (MaHopDong, NgayGiaoDich, SoTienTra, NguoiThuTien, GhiChu)
+    VALUES (@MaHopDong, GETDATE(), @SoTienTra, @NguoiThuTien, N'Khách trả tiền mặt');
+    
+    -- Tính ra số dư nợ còn lại sau khi khách ném tiền vào
+    DECLARE @DuNoConLai DECIMAL(18,2) = @TongNoHienTai - @SoTienTra;
+```
 
+Thay vì tự tính lại tiền lãi ở đây rất dài dòng, em tái sử dụng (reuse) Function ở Event 2. Sau đó, tiền khách đưa BẮT BUỘC phải INSERT ngay vào bảng NhatKyGiaoDich trước khi làm bất cứ việc gì khác, đảm bảo dòng tiền luôn được lưu vết.
 
+**Đoạn 3: Cập nhật Trạng thái Hợp đồng (Trả đứt vs Trả góp)**
+```
 
+    -- CẬP NHẬT TRẠNG THÁI HỢP ĐỒNG
 
+    IF @DuNoConLai <= 0 
+    BEGIN
+        -- Khách đưa dư tiền hoặc vừa đủ -> Xóa nợ, xuất kho trả hết đồ
+        SET @DuNoConLai = 0;
+        UPDATE HopDong SET TrangThaiHopDong = N'Đã thanh toán đủ' WHERE MaHopDong = @MaHopDong;
+        UPDATE TaiSan SET TrangThaiTaiSan = N'Đã trả khách' WHERE MaHopDong = @MaHopDong AND TrangThaiTaiSan = N'Đang cầm cố';
+        PRINT N' Khách đã tất toán TOÀN BỘ nợ. Đã cập nhật HD và xuất toàn bộ tài sản!';
+    END
+    ELSE
+    BEGIN
+        -- Khách vẫn còn nợ -> Chỉ cập nhật trạng thái
+        UPDATE HopDong SET TrangThaiHopDong = N'Đang trả góp' WHERE MaHopDong = @MaHopDong;
+        PRINT N' Đã thu tiền gốc/lãi. Khách chuyển sang "Đang trả góp". Dư nợ còn lại: ' + CAST(@DuNoConLai AS NVARCHAR(50));
+```
 
+Nếu khách trả sạch tiền (@DuNoConLai <= 0), hệ thống của em dùng lệnh UPDATE để tự động đổi trạng thái toàn bộ đồ đang cầm cố thành Đã trả khách. Tiệm không cần phải xuất từng món thủ công.
 
+**Đoạn 4: Rút tài sản từng phần**
+```
+        -- ĐIỀU KIỆN RÚT TÀI SẢN (NGHIỆP VỤ CỐT LÕI)
+        IF @MaTaiSanMuonRut IS NOT NULL
+        BEGIN
+            -- Quét kho: Cộng tổng giá trị các món đồ CÒN LẠI (bỏ qua món khách đang xin rút)
+            DECLARE @GiaTriKhoConLai DECIMAL(18,2) = 0;
+            SELECT @GiaTriKhoConLai = ISNULL(SUM(GiaTriDinhGia), 0)
+            FROM TaiSan
+            WHERE MaHopDong = @MaHopDong 
+              AND TrangThaiTaiSan = N'Đang cầm cố' 
+              AND MaTaiSan != @MaTaiSanMuonRut;
 
+            -- Quy tắc tử huyệt: Giá trị giữ lại >= Nợ còn lại
+            IF @GiaTriKhoConLai >= @DuNoConLai
+            BEGIN
+                UPDATE TaiSan SET TrangThaiTaiSan = N'Đã trả khách' WHERE MaTaiSan = @MaTaiSanMuonRut;
+                PRINT N'ĐỦ ĐIỀU KIỆN! Giá trị kho còn lại (' + CAST(@GiaTriKhoConLai AS NVARCHAR(50)) + N') an toàn so với khoản nợ. Đã xuất đồ!';
+            END
+            ELSE
+            BEGIN
+                PRINT N'TỪ CHỐI XUẤT ĐỒ! Giá trị kho còn lại (' + CAST(@GiaTriKhoConLai AS NVARCHAR(50)) + N') NHỎ HƠN nợ hiện tại (' + CAST(@DuNoConLai AS NVARCHAR(50)) + N'). Rủi ro mất vốn!';
+            END
+        END
+    END -- Kết thúc nhánh ELSE của đoạn 3
+```
 
+Chương trình sử dụng hàm SUM với điều kiện MaTaiSan != @MaTaiSanMuonRut để giả định rào lại kho đồ sau khi khách lấy đồ đi. Nếu phần giữ lại đủ bù nợ thì mới kích hoạt UPDATE trả đồ, nếu không hệ thống sẽ chặn đứng và báo 'Rủi ro mất vốn'.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/674dede3-7744-43bc-8a78-ff24060c070d" />
+- Demo tình huống khách đến trả 1 phần tiền và xin rút đi 1 món đồ đang cầm cố để sử dụng. Trả trước 5m để rút laptop ra (điện thoại vẫn đang cầm cố), khách đang nợ cả gốc lẫn lãi là 11m6(ở EV2), khách trả trước 5m thì còn 6m6. Hệ thống xác định giá trị tài sản còn lại>Dư nợ --> cho rút laptop ra vì dù có bị quỵt không trả tiền nợ thì chủ tiệm vẫn có thể bán món còn lại đang cầm cố để bù nợ.
 
+---
 
+**Event 4: Truy vấn danh sách nợ xấu (Nợ khó đòi)**
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8867e094-78f6-485d-afc6-7eab2b096312" />
+- Tạo dữ liệu khách hàng thứ 2 trả tiền quá hạn
+```
+-- TẠO DỮ LIỆU TEST KHÁCH NỢ XẤU
+USE QuanLyThuNo_K235480106001;
+GO
+-- 1. Thêm Khách hàng 
+INSERT INTO KhachHang (HoTen, SoDienThoai, SoCanCuocCongDan, DiaChi)
+VALUES (N'Trần Văn Bùng', '0988111222', '031099002233', N'Hải Phòng');
+DECLARE @MaKH_NoXau INT = SCOPE_IDENTITY(); 
+-- 2. Thêm Hợp đồng 
+-- Vay từ tháng 2, Hạn chót 1 là 01/03, Hạn chót 2 là 01/04/2026 -> Hôm nay là tháng 5, chắc chắn dính nợ xấu!
+INSERT INTO HopDong (MaKhachHang, NgayLapHopDong, SoTienVayGoc, HanChotMot, HanChotHai, TrangThaiHopDong)
+VALUES (@MaKH_NoXau, '2026-02-01', 15000000.00, '2026-03-01', '2026-04-01', N'Đang cầm cố');
+DECLARE @MaHD_NoXau INT = SCOPE_IDENTITY(); 
+-- 3. Thêm Tài sản thế chấp
+INSERT INTO TaiSan (MaHopDong, TenTaiSan, GiaTriDinhGia, TrangThaiTaiSan)
+VALUES (@MaHD_NoXau, N'Xe máy Honda SH 150i', 40000000.00, N'Đang cầm cố');
+PRINT N'Đã tạo thành công dữ liệu Khách Nợ Xấu !';
+GO
+```
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5e43db0e-1cd5-49f5-be53-c9ebfe1b2e78" />
+- Hàm truy vấn danh sách khách nợ xấu
+```
+CREATE PROCEDURE SpDanhSachNoXau
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    PRINT N'=== BÁO CÁO DANH SÁCH NỢ XẤU TÍNH ĐẾN HÔM NAY (' + CAST(GETDATE() AS NVARCHAR(20)) + N') ===';
 
+    SELECT 
+        KH.MaKhachHang,
+        KH.HoTen AS TenKhachHang,
+        KH.SoDienThoai,
+        KH.SoCanCuocCongDan, -- Đã sửa từ CCCD sang đúng tên trường của bạn
+        HD.MaHopDong,
+        HD.NgayLapHopDong,   -- Đã sửa từ NgayVay sang đúng tên trường của bạn
+        HD.HanChotHai AS NgayHetHanCuoiCung,
+        
+        -- Tính số ngày đã quá hạn so với hôm nay
+        DATEDIFF(DAY, HD.HanChotHai, GETDATE()) AS SoNgayQuaHan,
+        
+        -- Gọi Function tính nợ, tính đến thời điểm hiện tại
+        dbo.FnTinhTienHopDong(HD.MaHopDong, GETDATE()) AS TongNoPhaiThu,
+        
+        -- Tính tổng giá trị các món đồ CÒN TRONG KHO
+        (SELECT ISNULL(SUM(GiaTriDinhGia), 0) 
+         FROM TaiSan 
+         WHERE MaHopDong = HD.MaHopDong AND TrangThaiTaiSan = N'Đang cầm cố') AS TongGiaTriDoTrongKho,
+         
+        -- Đánh giá rủi ro dựa trên giá trị tài sản còn lại
+        CASE 
+            WHEN (SELECT ISNULL(SUM(GiaTriDinhGia), 0) FROM TaiSan WHERE MaHopDong = HD.MaHopDong AND TrangThaiTaiSan = N'Đang cầm cố') >= dbo.FnTinhTienHopDong(HD.MaHopDong, GETDATE())
+            THEN N'An toàn (Đủ đồ thanh lý)'
+            ELSE N'Nguy hiểm (Nợ vượt giá trị đồ)'
+        END AS DanhGiaRuiRo
 
+    FROM HopDong HD
+    JOIN KhachHang KH ON HD.MaKhachHang = KH.MaKhachHang
+    WHERE 
+        -- Điều kiện nợ xấu: Đã quá Hạn Chót 2
+        HD.HanChotHai < GETDATE() 
+        -- Và hợp đồng vẫn đang trong quá trình thực hiện, chưa kết thúc
+        AND HD.TrangThaiHopDong NOT IN (N'Đã thanh toán', N'Đã thanh toán đủ', N'Đã bán thanh lý');
+END;
+GO
+```
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/12cb3f52-a7ff-4b00-bc0a-3323487134df" />
+- Câu lệnh lọc danh sách các khách hàng đang nợ xấu nhưng ở trong ngưỡng an toàn (đủ đồ thanh lý)
 
+---
 
+#### Event 5: Quản lý thanh lý tài sản 
 
+**Nguyên nhân cần sử dụng trigger?:**
+Trong ngành cầm đồ, rủi ro lớn nhất không chỉ đến từ khách hàng bùng nợ, mà còn đến từ nhân viên gian lận. Giả sử một khách hàng đến trả nợ 15 triệu. Nhân viên nhận tiền bỏ túi riêng, sau đó lén vào phần mềm XÓA luôn dòng hợp đồng đó đi để phi tang chứng cứ. Lúc này chủ tiệm sẽ mất trắng cả tiền lẫn đồ.
 
+--> Vì vậy, chúng ta cần một Trigger canh gác ở cổng bảng HopDong. Bất cứ ai dùng lệnh DELETE để xóa một hợp đồng đang ở trạng thái Đang cầm cố hoặc Đang trả góp, Trigger sẽ đá bay lệnh đó, báo lỗi và khôi phục lại dữ liệu ngay lập tức.
 
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/647c29f3-ed81-4ca6-88d0-a8350535a1c2" />
+- Chương trình chính của trigger bảo mật an toàn dữ liệu
 
+```
+CREATE TRIGGER Trg_BaoMat_NganXoaHopDong
+ON HopDong
+FOR DELETE
+AS
+BEGIN
+    -- có hợp đồng nào đang ở trạng thái hoạt động hay không?
+    IF EXISTS (
+        SELECT 1 
+        FROM deleted 
+        WHERE TrangThaiHopDong IN (N'Đang cầm cố', N'Đang trả góp')
+    )
+    BEGIN
+        -- Nếu có, lập tức báo 
+        RAISERROR (N'CẢNH BÁO BẢO MẬT: Tuyệt đối không được xóa Hợp đồng đang trong quá trình cầm cố hoặc trả góp! Nếu khách đã tất toán, vui lòng cập nhật trạng thái thành "Đã thanh toán"!', 16, 1);
+        
+        -- Hủy bỏ hoàn toàn thao tác xóa, trả lại dữ liệu như cũ
+        ROLLBACK TRANSACTION;
+    END
+    ELSE
+    BEGIN
+        PRINT N'Hợp đồng đã đóng (Đã thanh toán/Đã thanh lý). Cho phép xóa thành công!';
+    END
+END;
+GO
+```
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/be0c956a-f538-487c-8823-b055b03632ef" />
+- Demo trường hợp nhân viên của quán lỡ tay/cố tình xóa đi 1 hợp đồng đề làm mục đích cá nhân, lúc này hệ thống sẽ cảnh báo đỏ và in ra trên màn hình hiển thị mà nhân viên đang sử dụng.
 
+---
 
-
-
-
-
-
-
-
-
+**4. Các sự kiện bổ sung**
+chưa làm phần này trở đi
 
 
 

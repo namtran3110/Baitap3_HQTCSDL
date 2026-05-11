@@ -169,17 +169,25 @@ GO
 ```
 
 **Cơ chế đăng ký hợp đồng**
+
 Code thực thi theo 3 cơ chế kỹ thuật cốt lõi:
+
 •	Cơ chế chống rác dữ liệu: Toàn bộ quá trình "tạo Khách hàng -> Tạo Hợp đồng -> Thêm Tài sản" được bọc trong một "Giao dịch" (BEGIN TRAN). Nếu mất điện hoặc lỗi ở bước thêm tài sản, hệ thống sẽ lập tức quay xe (ROLLBACK), hủy bỏ toàn bộ, đảm bảo không bao giờ có chuyện "Có hợp đồng mà không có tài sản".
+
 •	Cơ chế tái sử dụng Khách hàng: Hệ thống tự động dùng SoCanCuocCongDan để tra cứu. Nếu là khách cũ, nó sẽ nối hợp đồng mới vào mã khách cũ. Nếu là khách mới, nó tự tạo và lấy ngay mã vừa sinh ra bằng lệnh SCOPE_IDENTITY().
+
 •	Cơ chế xử lý mảng bằng JSON: Thay vì phải viết vòng lặp lằng nhằng hoặc gọi hàm nhiều lần để lưu nhiều tài sản, code dùng OPENJSON để "mổ xẻ" một chuỗi JSON và đẩy toàn bộ danh sách tài sản vào Database chỉ bằng 1 câu lệnh INSERT duy nhất.
 
 **Cơ chế hoạt động của Deadline 1 và 2 (HanChotMot, HanChotHai)**
+
 Hai mốc thời gian này được người dùng tự ấn định khi lập hợp đồng và đóng vai trò như "Hai chiếc công tắc tự động" của hệ thống:
+
 •	HanChotMot (Công tắc chuyển đổi Lãi suất & Nợ xấu): Cơ chế tính tiền (ở Event 2) sẽ luôn lấy "Ngày hiện tại" để so sánh với mốc này.
-o	Nếu Ngày hiện tại $\le$ HanChotMot: Hệ thống tính Lãi đơn (5000đ/1tr/ngày) êm đềm.
-o	Nếu Ngày hiện tại > HanChotMot: Công tắc bật! Hợp đồng tự động bị liệt vào danh sách đen "Quá hạn", đồng thời thuật toán chuyển sang tính Lãi kép (Lãi mẹ đẻ lãi con) cực kỳ gắt gao.
+
+    - Nếu Ngày hiện tại < HanChotMot: Hệ thống tính Lãi đơn (5000đ/1tr/ngày) êm đềm.
+    - Nếu Ngày hiện tại > HanChotMot: Công tắc bật! Hợp đồng tự động bị liệt vào danh sách đen "Quá hạn", đồng thời thuật toán chuyển sang tính Lãi kép (Lãi mẹ đẻ lãi con) cực kỳ gắt gao.
 •	HanChotHai (Công tắc Thanh lý tài sản):
+
 Đây là giới hạn chịu đựng cuối cùng của tiệm cầm đồ. Khi ngày hiện tại vượt qua mốc này mà khách vẫn chưa trả hết tiền, "công tắc 2" kích hoạt. Hệ thống sẽ tự động gỡ mác "Đang cầm cố" của các món đồ (Laptop, Xe máy...) và đóng dấu "Sẵn sàng thanh lý" để chủ tiệm có quyền mang ra chợ bán bù vốn.
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8278847b-c027-465f-a8be-8604c959ab88" />
@@ -329,15 +337,15 @@ GO
 - Chương trình kiểm tra 2 hàm tính lãi ở trên
 
 Giải thích kết quả chương trình: 
-- 1. Thông số ban đầu:
+- Thông số ban đầu:
     - Tiền gốc: 10.000.000đ
     - Ngày vay: 09/05/2026
     - Hạn chót 1 (HanChotMot): 01/06/2026
     - Lãi suất: 5.000đ / 1 triệu / 1 ngày $\rightarrow$ Tức là 0,5%/ngày (0.005).
-- 2. Giai đoạn 1: Tính Lãi Đơn (Từ 09/05 đến 01/06)
+- Giai đoạn 1: Tính Lãi Đơn (Từ 09/05 đến 01/06)
     - Khoảng thời gian này là 23 ngày.
     - Tiền lãi đơn = 10.000.000 x 0.005 x 23 ngày = 1.150.000đ
-- 3. Giai đoạn 2: Tính Lãi Kép phạt trễ hạn (Từ 01/06 đến 10/06)
+- Giai đoạn 2: Tính Lãi Kép phạt trễ hạn (Từ 01/06 đến 10/06)
     - Vì ngày test là 10/06, đã vượt quá HanChotMot, hệ thống tự động bật "Công tắc lãi kép" theo đúng nghiệp vụ đề bài:
     - Gộp gốc mới: Hệ thống lấy (Gốc cũ 10tr) + (Lãi đơn 1.150.000đ) = 11.150.000đ. Đây chính là số nợ bị chốt vào ngày 01/06.
     - Số ngày chịu lãi kép: Từ 01/06 đến 10/06 là 9 ngày.
@@ -461,6 +469,7 @@ GO
 ```
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/5e43db0e-1cd5-49f5-be53-c9ebfe1b2e78" />
 - Hàm truy vấn danh sách khách nợ xấu
+
 ```
 CREATE PROCEDURE SpDanhSachNoXau
 AS
@@ -506,6 +515,7 @@ BEGIN
 END;
 GO
 ```
+
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/12cb3f52-a7ff-4b00-bc0a-3323487134df" />
 - Câu lệnh lọc danh sách các khách hàng đang nợ xấu nhưng ở trong ngưỡng an toàn (đủ đồ thanh lý)
 
@@ -547,6 +557,7 @@ BEGIN
 END;
 GO
 ```
+
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/be0c956a-f538-487c-8823-b055b03632ef" />
 - Demo trường hợp nhân viên của quán lỡ tay/cố tình xóa đi 1 hợp đồng đề làm mục đích cá nhân, lúc này hệ thống sẽ cảnh báo đỏ và in ra trên màn hình hiển thị mà nhân viên đang sử dụng.
 

@@ -564,11 +564,20 @@ GO
 ---
 
 **4. Các sự kiện bổ sung**
-chưa làm phần này trở đi
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/8bbf0945-fd44-46ab-bdf0-f09f5b8da1cb" />
+- Cơ chế: Khi khách gia hạn, họ phải thanh toán hết tiền lãi lũy kế đến hôm nay. Sau đó, hệ thống sẽ "reset" ngày bắt đầu tính lãi về ngày hôm nay và đẩy hai mốc deadline đi xa hơn (ví dụ thêm 30 ngày).
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/a4db644e-2e9a-4b8b-ae56-8af6e1eba34c" />
+- Giả lập khách A đến trả tiền 3 lần khác nhau
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/4e58cb5d-c336-412f-bbfb-242631c3e3ae" />
+Giải thích cơ chế:
 
+Tính bất biến: Dữ liệu nợ gốc trong bảng HopDong được giữ nguyên để làm căn cứ pháp lý ban đầu. Mọi biến động tiền bạc đều được lưu thành các dòng mới trong bảng NhatKyGiaoDich thay vì ghi đè lên số cũ.
 
+Truy vết nhân sự: Cột NguoiThuTien lưu đích danh nhân viên thực hiện. Nếu nhân viên Lan thu 1 triệu nhưng chỉ nộp về tiệm 500k, chủ tiệm có thể đối soát ngay lập tức với khách hàng dựa trên Audit Log này.
 
+Tính thời điểm: Nhờ cột NgayGiaoDich, chủ tiệm có thể tái hiện lại dòng tiền tại bất kỳ thời điểm nào trong quá khứ.
 
+---
 
 
 

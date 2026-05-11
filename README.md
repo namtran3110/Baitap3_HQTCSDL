@@ -1,4 +1,4 @@
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/93ff49ec-14df-4b95-9d86-a91905c8b480" /># MÔN HỌC: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU - ThS.ĐỖ DUY CỐP
+# MÔN HỌC: HỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU - THS.ĐỖ DUY CỐP
 ## Họ và tên: Trần Nhất Nam
 ## MSSV: K235480106001
 ## Lớp: K59KMT
